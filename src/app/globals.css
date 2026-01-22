@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+html, body { height: 100%; }
+body { font-family: var(--font-funnel-display), system-ui, sans-serif; }
+::selection { background: rgba(147, 197, 253, 0.45); }
+
+* { scrollbar-width: thin; scrollbar-color: rgba(148, 163, 184, 0.45) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.45); border-radius: 999px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* How-it-works "flash + glow" animation */
+@keyframes howFlash {
+  0% {
+    opacity: 1;
+    box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+  }
+  18% {
+    opacity: 0.92;
+    box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+  }
+  40% {
+    opacity: 1;
+    box-shadow: 0 0 32px var(--howGlow);
+  }
+  70% {
+    opacity: 0.98;
+    box-shadow: 0 0 18px var(--howGlow);
+  }
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+  }
+}
+
+.how-flash {
+  animation: howFlash 900ms ease-in-out;
+}

@@ -1,0 +1,33 @@
+{
+  "name": "friend-maker-missions",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "clsx": "2.1.1",
+    "gray-matter": "4.0.3",
+    "lucide-react": "0.507.0",
+    "mongodb": "^7.0.0",
+    "next": "16.1.4",
+    "next-mdx-remote": "5.0.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tailwind-merge": "2.5.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5",
+    "autoprefixer": "10.4.20",
+    "eslint": "^9.39.2",
+    "eslint-config-next": "16.1.4",
+    "postcss": "8.4.49",
+    "tailwindcss": "3.4.17",
+    "typescript": "5.9.3"
+  }
+}
