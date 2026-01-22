@@ -13,16 +13,34 @@ const KEY = "fmm:accomplished:v1"
 type Store = Record<string, Record<string, boolean>>
 
 const CLIENT_KEY = "fmm:clientId:v1"
-function getClientId() {
+
+// Robust clientId getter:
+// 1) localStorage (preferred)
+// 2) sessionStorage (fallback)
+// 3) in-memory (last resort, but stable for this page session)
+function readStorage(storage: Storage, key: string) {
   try {
-    const existing = localStorage.getItem(CLIENT_KEY)
-    if (existing) return existing
-    const id = `c_${crypto.randomUUID()}`
-    localStorage.setItem(CLIENT_KEY, id)
-    return id
+    return storage.getItem(key)
   } catch {
-    return `c_${Math.random().toString(16).slice(2)}`
+    return null
   }
+}
+function writeStorage(storage: Storage, key: string, value: string) {
+  try {
+    storage.setItem(key, value)
+    return true
+  } catch {
+    return false
+  }
+}
+function makeId() {
+  try {
+    // crypto.randomUUID is best
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const c: any = globalThis.crypto
+    if (c?.randomUUID) return `c_${c.randomUUID()}`
+  } catch {}
+  return `c_${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`
 }
 
 function readStore(): Store {
@@ -48,20 +66,46 @@ export default function MissionBoard({ weekKey, missions }: { weekKey: string; m
   const [store, setStore] = useState<Store>({})
   const [peopleTotals, setPeopleTotals] = useState<Record<string, number>>({})
 
-  // Build stable mission id list
+  // Stable client id for ALL requests from this device/session
+  const clientIdRef = useRef<string>("")
+
+  // prevent double-submit per mission
+  const inflightRef = useRef<Record<string, boolean>>({})
+
+  // Stable ids list for totals fetch
   const missionIds = useMemo(() => {
     const ids = (missions || []).map((m) => String(m?.id || "").trim()).filter(Boolean)
-    // de-dupe (just in case)
     return Array.from(new Set(ids))
   }, [missions])
 
-  const refreshingRef = useRef(false)
+  useEffect(() => {
+    // build stable clientId once
+    let id =
+      readStorage(localStorage, CLIENT_KEY) ||
+      readStorage(sessionStorage, CLIENT_KEY) ||
+      ""
+
+    if (!id) id = makeId()
+
+    // try to persist (localStorage preferred)
+    if (!writeStorage(localStorage, CLIENT_KEY, id)) {
+      // fallback to session
+      writeStorage(sessionStorage, CLIENT_KEY, id)
+    }
+
+    clientIdRef.current = id
+  }, [])
+
+  useEffect(() => {
+    setStore(readStore())
+  }, [])
+
+  const accomplishedMap = store[weekKey] || {}
+  const accomplishedCount = useMemo(() => Object.values(accomplishedMap).filter(Boolean).length, [accomplishedMap])
+  const cleared = accomplishedCount > 0
 
   const refreshTotals = async () => {
     if (!missionIds.length) return
-    if (refreshingRef.current) return
-    refreshingRef.current = true
-
     try {
       const res = await fetch("/api/mission-totals", {
         method: "POST",
@@ -69,64 +113,62 @@ export default function MissionBoard({ weekKey, missions }: { weekKey: string; m
         body: JSON.stringify({ missionIds }),
       })
       const data = await res.json().catch(() => null)
-
-      // Even if res is non-200, try to gracefully handle payload
       const totals = data?.totals && typeof data.totals === "object" ? (data.totals as Record<string, number>) : {}
 
-      // ensure all shown missions have a number
       const normalized: Record<string, number> = {}
       for (const id of missionIds) normalized[id] = Number(totals[id] ?? 0)
-
       setPeopleTotals(normalized)
     } catch {
-      // keep existing totals; cards will show "—" if undefined
-    } finally {
-      refreshingRef.current = false
+      // ignore
     }
   }
 
-  useEffect(() => {
-    setStore(readStore())
-  }, [])
-
-  // Fetch totals on load / whenever the visible missions change
   useEffect(() => {
     void refreshTotals()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missionIds.join("|")])
 
-  const accomplishedMap = store[weekKey] || {}
-  const accomplishedCount = useMemo(() => Object.values(accomplishedMap).filter(Boolean).length, [accomplishedMap])
-  const cleared = accomplishedCount > 0
-
   const postAccomplish = async (missionId: string) => {
+    const clientId = clientIdRef.current
+    if (!clientId) return
+
+    // block double POST spam for the same mission
+    if (inflightRef.current[`post:${weekKey}:${missionId}`]) return
+    inflightRef.current[`post:${weekKey}:${missionId}`] = true
+
     try {
       const res = await fetch("/api/accomplish", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ weekKey, missionId, clientId: getClientId() }),
+        body: JSON.stringify({ weekKey, missionId, clientId }),
       })
       const data = await res.json().catch(() => null)
 
       if (data?.counted === true) {
-        // optimistic UI
         setPeopleTotals((prev) => ({ ...prev, [missionId]: Number(prev[missionId] || 0) + 1 }))
       } else {
-        // if it wasn't counted (already existed), make sure UI is correct
+        // if server says already counted, sync totals
         void refreshTotals()
       }
     } catch {
-      // if network fails, re-sync later
       void refreshTotals()
+    } finally {
+      inflightRef.current[`post:${weekKey}:${missionId}`] = false
     }
   }
 
   const deleteAccomplish = async (missionId: string) => {
+    const clientId = clientIdRef.current
+    if (!clientId) return
+
+    if (inflightRef.current[`del:${weekKey}:${missionId}`]) return
+    inflightRef.current[`del:${weekKey}:${missionId}`] = true
+
     try {
       const res = await fetch("/api/accomplish", {
         method: "DELETE",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ weekKey, missionId, clientId: getClientId() }),
+        body: JSON.stringify({ weekKey, missionId, clientId }),
       })
       const data = await res.json().catch(() => null)
 
@@ -137,6 +179,8 @@ export default function MissionBoard({ weekKey, missions }: { weekKey: string; m
       }
     } catch {
       void refreshTotals()
+    } finally {
+      inflightRef.current[`del:${weekKey}:${missionId}`] = false
     }
   }
 
@@ -159,7 +203,6 @@ export default function MissionBoard({ weekKey, missions }: { weekKey: string; m
     })
   }
 
-  // fixed width trophy status capsule
   const statusCapsuleClass =
     "flex-none w-[26ch] whitespace-nowrap flex items-center gap-2 rounded-3xl border border-black/5 bg-white/55 px-4 py-3 backdrop-blur dark:border-white/10 dark:bg-white/5"
 
