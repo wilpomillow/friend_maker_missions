@@ -1,38 +1,49 @@
 // src/lib/mongodb.ts
 import { MongoClient } from "mongodb"
 
-const uri = process.env.MONGODB_URI
-const dbName = process.env.MONGODB_DB
+const rawUri = process.env.MONGODB_URI
+const rawDb = process.env.MONGODB_DB
 
-if (!uri) throw new Error("Missing env: MONGODB_URI")
-if (!dbName) throw new Error("Missing env: MONGODB_DB")
+if (!rawUri) throw new Error("Missing env: MONGODB_URI")
+if (!rawDb) throw new Error("Missing env: MONGODB_DB")
 
-// ⬇️ Explicitly narrow types AFTER guards
-const MONGO_URI: string = uri
-const MONGO_DB: string = dbName
+// ✅ Guaranteed strings after guards
+const MONGODB_URI: string = rawUri
+const MONGODB_DB: string = rawDb
 
 declare global {
   // eslint-disable-next-line no-var
-  var __fmmMongoClientPromise: Promise<MongoClient> | undefined
+  var __mongoClient: MongoClient | undefined
+  // eslint-disable-next-line no-var
+  var __mongoClientPromise: Promise<MongoClient> | undefined
   // eslint-disable-next-line no-var
   var __fmmIndexesEnsured: boolean | undefined
 }
 
 export async function getMongoClient() {
-  if (!global.__fmmMongoClientPromise) {
-    const client = new MongoClient(MONGO_URI)
-    global.__fmmMongoClientPromise = client.connect()
+  if (global.__mongoClient) return global.__mongoClient
+
+  if (!global.__mongoClientPromise) {
+    const client = new MongoClient(MONGODB_URI, {
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 10_000,
+    })
+
+    global.__mongoClientPromise = client.connect()
   }
-  return global.__fmmMongoClientPromise
+
+  global.__mongoClient = await global.__mongoClientPromise
+  return global.__mongoClient
 }
 
 export async function getDb() {
   const client = await getMongoClient()
-  return client.db(MONGO_DB)
+  return client.db(MONGODB_DB)
 }
 
 export async function ensureIndexes() {
   if (global.__fmmIndexesEnsured) return
+
   const db = await getDb()
 
   await db.collection("accomplish_events").createIndex(
